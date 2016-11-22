@@ -26,16 +26,19 @@ int main(int argc, char *argv[])
         int my_n = block_size(my_rank, p, n);
         int *arr = malloc(my_n * sizeof(*arr));
 
-        /* Receive */
+        /* Receive array */
         MPI_Status status;
         MPI_Recv(arr, my_n, MPI_INT, 0, 0, parent, &status);
 
+        /* Receive pivot */
+        int *pivots = malloc((p - 1) * sizeof(*pivots));
+        MPI_Bcast(pivots, p - 1, MPI_INT, 0, parent);
+
         /* status */
+        printf("vec, pivs:\n");
         print_vector(arr, my_n);
+        print_vector(pivots, p - 1);
 
-        MPI_Barrier(parent);
-
-        free(arr);
         MPI_Finalize();
         return EXIT_SUCCESS;
 }

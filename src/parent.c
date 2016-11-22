@@ -20,32 +20,19 @@ int *gather_pivots(int *arr, long p, long n)
 
                 long lo = block_lo(i, p, n);
 
-                // p = 8, n = 16
-                printf("sampling from %ld to %ld\n", lo, lo + (p - 1) * (n / (p * p)));
+                // printf("sampling from %ld to %ld\n", lo, lo + (p - 1) * (n / (p * p)));
 
                 long j;
-                for (j = lo; j <= lo + ((p - 1) * (n / (p * p))); j += (n / (p * p))) {
-                        printf("j: %ld, isamples: %ld\n", j, isamples);
+                for (j = lo; j <= lo + ((p - 1) * (n / (p * p))); j += (n / (p * p)))
                         samples[isamples++] = arr[j];
-                }
         }
 
-        printf("samples:\n");
-        print_vector(samples, p * p);
-
         quicksort(samples, p * p);
-
-        printf("samples:\n");
-        print_vector(samples, p * p);
 
         long ipivots = 0;
         for (i = p + (p / 2) - 1; i < (p - 1) * p + (p / 2); i += p)
                 pivots[ipivots++] = samples[i];
 
-        printf("pivots:\n");
-        print_vector(pivots, p - 1);
-
-        //free(samples);
         return pivots;
 }
 
@@ -54,6 +41,7 @@ void sort_sublists(int *arr, long p, long n)
         long id; /**/
         long lo; /**/
         long hi; /**/
+
         #pragma omp parallel private(id, lo, hi) num_threads(p)
         {
                 /* who am I? */
@@ -68,8 +56,6 @@ void sort_sublists(int *arr, long p, long n)
 
 int main(int argc, char *argv[])
 {
-        MPI_Init(&argc, &argv);
-
         if (argc != 3) {
                 printf("Usage is: GXX_psrs <n> <p>\n\n");
                 printf("  <n>: \tSize of random array to sort.\n");
@@ -79,20 +65,29 @@ int main(int argc, char *argv[])
 
         long n = char_to_long(argv[1]);
         long p = char_to_long(argv[2]);
+
+        if (p * p > n) {
+                printf("(p * p) has to be smaller than (n)!\n");
+                exit(EXIT_FAILURE);
+        }
+
+        MPI_Init(&argc, &argv);
+
         int *arr = random_ints(n);
 
         MPI_Comm workers;
         MPI_Comm_spawn("./worker", argv + 1, p, MPI_INFO_NULL, 0,
                         MPI_COMM_SELF, &workers, MPI_ERRCODES_IGNORE);
 
+        int my_rank;
+        MPI_Comm_rank(workers, &my_rank);
+        printf("master rank is %d\n", my_rank);
+
         /* subsort, send */
         sort_sublists(arr, p, n);
 
         /* status */
         print_vector(arr, n);
-
-        /* samples, pivots */
-        int *pivots = gather_pivots(arr, p, n);
 
         long i;
         for (i = 0; i < p; i++) {
@@ -101,10 +96,10 @@ int main(int argc, char *argv[])
                 MPI_Send(sendbuf, bufsize, MPI_INT, i, 0, workers);
         }
 
-        MPI_Barrier(workers);
+        /* samples, pivots */
+        int *pivots = gather_pivots(arr, p, n);
+        MPI_Bcast(pivots, p - 1, MPI_INT, MPI_ROOT, workers);
 
-        free(arr);
-        free(pivots);
         MPI_Finalize();
         return EXIT_SUCCESS;
 }
