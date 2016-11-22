@@ -1,11 +1,16 @@
+/* worker program */
 #include<stdlib.h>
-#include<limits.h>
 #include<stdio.h>
-#include<time.h>
 
 /* Parallelism */
 #include<mpi.h>
 #include<omp.h>
+
+/* indexing macros */
+#define block_lo(id, p, n) ((id) * (n) / (p))
+#define block_hi(id, p, n) (block_lo((id) + 1, p, n) - 1)
+#define block_size(id, p, n) (block_lo((id) + 1, p, n) - block_lo(id, p, n))
+#define block_owner(idx, p, n) (((p) * ((idx) + 1) - 1) / (n))
 
 /* Simplify syntax */
 #define quicksort(array, size) _quicksort((array), 0, ((size) - 1))
@@ -26,6 +31,23 @@ long char_to_long(const char *digits)
         while (*(++d) != '\0');
 
         return number;
+}
+
+/*
+ * Print 'size' sized base vector
+ */
+void print_vector(int *base, long size)
+{
+        int rank;
+        MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+
+        printf("\nworker %d:\n", rank);
+
+        long i;
+        for (i = 0; i < size; i++) {
+                printf("%d", base[i]);
+                printf(i == size - 1 ? ".\n" : " ");
+        }
 }
 
 /*
@@ -59,7 +81,6 @@ long _partition(int *base, long l, long r)
         /* replace pivot */
         base[l] = base[j];
         base[j] = pivot;
-
         return j;
 }
 
@@ -80,38 +101,36 @@ void _quicksort(int *base, long l, long r)
 
 int main(int argc, char *argv[])
 {
-        if (argc != 3) {
-                printf("Usage is: GXX_psrs <n> <p>\n\n");
-                printf("  <n>: \tSize of random array to sort.\n");
-                printf("  <p>: \tNumber of process accross which to run.\n");
-                exit(EXIT_FAILURE);
-        }
+        MPI_Init(&argc, &argv);
 
-        /* ready data */
+        MPI_Comm parent;
+        MPI_Comm_get_parent(&parent);
+
+        int my_rank;
+        MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
+
+        /* ready args */
         long n = char_to_long(argv[1]);
         long p = char_to_long(argv[2]);
-        int *a = malloc(n * sizeof(*a));
 
-        /* populate array */
-        long i;
-        srand(time(NULL));
-        for (i = 0; i < n; i++)
-                a[i] = rand() % INT_MAX;
+        /* ready data */
+        int my_n = block_size(my_rank, p, n);
+        int *arr = malloc(my_n * sizeof(*arr));
 
-        /* output status */
-        for (i = 0; i < n; i++) {
-                printf("%d", a[i]);
-                printf(i == n - 1 ? ".\n" : " ");
-        }
+        /* Receive */
+        MPI_Status status;
+        MPI_Recv(arr, my_n, MPI_INT, 0, 0, parent, &status);
 
-        quicksort(a, n);
+        /* status */
+        print_vector(arr, my_n);
 
-        /* output results */
-        for (i = 0; i < n; i++) {
-                printf("%d", a[i]);
-                printf(i == n - 1 ? ".\n" : " ");
-        }
+        /* sorting */
+        quicksort(arr, my_n);
 
-        free(a);
+        /* results */
+        print_vector(arr, my_n);
+
+        free(arr);
+        MPI_Finalize();
         return EXIT_SUCCESS;
 }
