@@ -6,10 +6,10 @@
  * This will give the pivot position for the next iteration.
  *
  */
-long _partition(int *base, long l, long r)
+int _partition(int *base, int l, int r)
 {
-        long i = l;             /* left approximation index */
-        long j = r + 1;         /* right approximation index */
+        int i = l;             /* left approximation index */
+        int j = r + 1;         /* right approximation index */
         int pivot = base[l];
 
         while (i < j) {
@@ -41,12 +41,12 @@ long _partition(int *base, long l, long r)
  * The sorting for base is done in-place.
  *
  */
-void _quicksort(int *base, long l, long r)
+void _quicksort(int *base, int l, int r)
 {
         if (l >= r)
                 return;
 
-        long j = _partition(base, l, r);   /* pivot position */
+        int j = _partition(base, l, r);   /* pivot position */
         _quicksort(base, j + 1, r);        /* right chunk */
         _quicksort(base, l, j - 1);        /* left chunk */
 }

@@ -58,7 +58,7 @@ inline void sfree(void *ptr)
  * Returns: the allocated random vector.
  *
  */
-int *random_ints(long size);
+int *random_ints(int size);
 
 /*
  * Convert a string of digits to a along integer
@@ -66,7 +66,7 @@ int *random_ints(long size);
  * Returns: the converted number.
  *
  */
-long char_to_long(const char *digits);
+int char_to_int(const char *digits);
 
 /*
  * Print vector of ints of length 'size' as a sequence of numbers
@@ -74,6 +74,6 @@ long char_to_long(const char *digits);
  * Returns: nothing.
  *
  */
-void print_vector(int *base, long size);
+void print_vector(int *base, int size);
 
 #endif /* ifndef __UTILS_H__ */

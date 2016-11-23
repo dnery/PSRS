@@ -9,12 +9,12 @@
  * Generate 'size' sized random vector of ints
  *
  */
-int *random_ints(long size)
+int *random_ints(int size)
 {
         int *base = malloc(size * sizeof(*base));
 
         /* populate array */
-        long i;
+        int i;
         srand(time(NULL));
         for (i = 0; i < size; i++)
                 base[i] = rand() % 100;
@@ -23,16 +23,16 @@ int *random_ints(long size)
 }
 
 /*
- * Convert a string of digits to long integer
+ * Convert a string of digits to int integer
  *
  * The use of conversion function of our own lets us to store a number as
- * great as long allows.
+ * great as int allows.
  *
  */
-long char_to_long(const char *digits)
+int char_to_int(const char *digits)
 {
         char *d = (char *)digits;
-        long number = 0;
+        int number = 0;
 
         /* char_to_long ascii char to number, digit by digit */
         do number = number * 10 + (*d - 48);
@@ -45,9 +45,9 @@ long char_to_long(const char *digits)
  * Print 'size' sized base vector of ints
  *
  */
-void print_vector(int *base, long size)
+void print_vector(int *base, int size)
 {
-        long i;
+        int i;
         for (i = 0; i < size; i++) {
                 printf("%d", base[i]);
                 printf(i == size - 1 ? ".\n" : " ");

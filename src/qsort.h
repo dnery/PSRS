@@ -10,8 +10,8 @@
  */
 #define quicksort(array, size) _quicksort((array), 0, ((size) - 1))
 
-long _partition(int *base, long l, long r);
+int _partition(int *base, int l, int r);
 
-void _quicksort(int *base, long l, long r);
+void _quicksort(int *base, int l, int r);
 
 #endif /* ifndef __QSORT_H__ */
