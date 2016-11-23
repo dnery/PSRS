@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <limits.h>
 #include <stdio.h>
 
 /* Parallel API's */
@@ -54,6 +55,64 @@ void sort_sublists(int *arr, int p, int n)
         }
 }
 
+int inbound(int start, int end, int *idx, int *subsubln){
+        int count = 0;
+
+        for (int i = start; i < end; ++i) {
+                if (idx[i] >= subsubln[i])
+                        count++;
+        }
+        return count < (end-start);
+}
+
+int **merge_result(int **subsubl, int *subsubln, int p, int *nres)
+{
+        int **res = malloc(p * sizeof(**res));
+        int *idx = calloc(p * p, sizeof(*idx));
+
+        #pragma omp parallel num_threads(p)
+        {
+                int my_id = omp_get_thread_num();
+                int start = my_id * p;
+                int end = p + start;
+                int *partial_res = NULL;
+                int size_partial = 0;
+
+                while (inbound(start, end, idx, subsubln)){
+                        int min = INT_MAX;
+                        int minidx = INT_MAX;
+                        for (int i = start; i < end; ++i) {
+                                if (idx[i] >= subsubln[i])
+                                        continue;
+                                if (min > subsubl[i][idx[i]]){
+                                        min = subsubl[i][idx[i]];
+                                        minidx = i;
+                                }
+                        }
+                        idx[minidx]++;
+                        partial_res = realloc(partial_res, ++size_partial * (sizeof(*partial_res)));
+                        partial_res[size_partial-1] = min;
+                }
+                res[my_id] = partial_res;
+                nres[my_id] = size_partial;
+        }
+        return res;
+}
+
+void print_result(int **result, int *nresult, int p)
+{
+        int i, j;
+        char *c = "";
+
+        for (i = 0; i < p; i++){
+                for (j = 0; j < nresult[i]; j++){
+                        printf("%s%d", c, result[i][j]);
+                        c = ", ";
+                }
+        }
+        printf(".");
+}
+
 int main(int argc, char *argv[])
 {
         if (argc != 3) {
@@ -86,7 +145,7 @@ int main(int argc, char *argv[])
         sort_sublists(arr, p, n);
 
         /* status */
-        print_vector(arr, n);
+        //print_vector(arr, n);
 
         int i;
         for (i = 0; i < p; i++) {
@@ -111,15 +170,17 @@ int main(int argc, char *argv[])
                         int idx = i * p + j;
                         MPI_Recv(&(subsubln[idx]), 1, MPI_INT, i, i, workers, NULL);
 
-                        subsubl[idx] = malloc (subsubln[idx] * sizeof(*(subsubl[idx])));
+                        subsubl[idx] = malloc(subsubln[idx] * sizeof(*(subsubl[idx])));
                         MPI_Recv(subsubl[idx], subsubln[idx], MPI_INT, i, i, workers, NULL);
 
-                        printf("%d: received %d elems\n", i, subsubln[idx]);
-
-                        /* for christ's sake */
-                        print_vector(subsubl[idx], subsubln[idx]);
+                        //printf("%d: received %d elems\n", i, subsubln[idx]);
+                        //print_vector(subsubl[idx], subsubln[idx]);
                 }
         }
+
+        int *nresult = malloc(p * sizeof(*nresult));
+        int **result = merge_result(subsubl, subsubln, p, nresult);
+        print_result(result, nresult, p);
 
         MPI_Finalize();
         return EXIT_SUCCESS;
