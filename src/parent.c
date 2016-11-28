@@ -10,107 +10,125 @@
 #include "utils.h"
 #include "qsort.h"
 
-int *gather_pivots(int *arr, int p, int n)
+int *gather_pivots(int *elems, int nproc, int nelem)
 {
-        int *pivots = calloc(p - 1, sizeof(*pivots));
-        int *samples = calloc(p * p,  sizeof(*samples));
+        autofree int *samples = malloc((nproc * nproc) * sizeof(*samples));
+        int *pivots = malloc((nproc - 1) * sizeof(*pivots));
 
+        int iproc;      /* processor iterator */
+        int isampler;   /* sampler loop iterator */
+        int isampled;   /* sample vector iterator */
+        int ipivots;    /* pivot vector iterator */
 
-        int i, isamples = 0;
-        for (i = 0; i < p; i++) {
+        for (isampled = 0, iproc = 0; iproc < nproc; iproc++) {
 
-                int lo = block_lo(i, p, n);
+                /* gather samples from elements */
+                int lo = block_lo(iproc, nproc, nelem);
+                int hi = lo + ((nproc - 1) * (nelem / (nproc * nproc)));
+                int step = (nelem / (nproc * nproc));
 
-                // printf("sampling from %ld to %ld\n", lo, lo + (p - 1) * (n / (p * p)));
-
-                int j;
-                for (j = lo; j <= lo + ((p - 1) * (n / (p * p))); j += (n / (p * p)))
-                        samples[isamples++] = arr[j];
+                for (isampler = lo; isampler <= hi; isampler += step)
+                        samples[isampled++] = elems[isampler];
         }
 
-        quicksort(samples, p * p);
+        /* sort the samples vector */
+        quicksort(samples, nproc * nproc);
 
-        int ipivots = 0;
-        for (i = p + (p / 2) - 1; i < (p - 1) * p + (p / 2); i += p)
-                pivots[ipivots++] = samples[i];
+        /* gather pivots from samples */
+        int lo = nproc + (nproc / 2) - 1;
+        int hi = (nproc - 1) * nproc + (nproc / 2) - 1;
+
+        for (ipivots = 0, isampled = lo; isampled <= hi; isampled += nproc)
+                pivots[ipivots++] = samples[isampled];
 
         return pivots;
 }
 
-void sort_sublists(int *arr, int p, int n)
+void sort_sublists(int *arr, int nproc, int nelem)
 {
-        int id; /**/
-        int lo; /**/
-        int hi; /**/
+        int id; /* current thread id */
+        int lo; /* current thread start index */
+        int hi; /* current thread end index */
 
-        #pragma omp parallel private(id, lo, hi) num_threads(p)
+        #pragma omp parallel private(id, lo, hi) num_threads(nproc)
         {
                 /* who am I? */
                 id = omp_get_thread_num();
-                lo = block_lo(id, p, n);
-                hi = block_hi(id, p, n);
+                lo = block_lo(id, nproc, nelem);
+                hi = block_hi(id, nproc, nelem);
 
                 /* sort sublist */
                 _quicksort(arr, lo, hi);
         }
 }
 
-int inbound(int start, int end, int *idx, int *subsubln){
+static inline int inbound(int start, int end, int *idx, int *subsubln)
+{
         int count = 0;
 
-        for (int i = start; i < end; ++i) {
+        for (int i = start; i < end; ++i)
                 if (idx[i] >= subsubln[i])
                         count++;
-        }
+
         return count < (end-start);
 }
 
-int **merge_result(int **subsubl, int *subsubln, int p, int *nres)
+void merge_results(int **merged, int *nmerged, int **elems, int *nelem, int nproc)
 {
-        int **res = malloc(p * sizeof(**res));
-        int *idx = calloc(p * p, sizeof(*idx));
+        int id;         /* current processor id */
+        int lo;         /* local start index */
+        int hi;         /* local end index */
+        int *partials;  /* local partial vector */
+        int npartials;  /* local partial vector length */
 
-        #pragma omp parallel num_threads(p)
+        /* sublist index tracking vector */
+        autofree int *idxs = calloc(nproc * nproc, sizeof(*idxs));
+
+        #pragma omp parallel private(id, lo, hi, partials, npartials) num_threads(nproc)
         {
-                int my_id = omp_get_thread_num();
-                int start = my_id * p;
-                int end = p + start;
-                int *partial_res = NULL;
-                int size_partial = 0;
+                id = omp_get_thread_num();
+                lo = id * nproc;
+                hi = nproc + lo;
+                partials = NULL;
+                npartials = 0;
 
-                while (inbound(start, end, idx, subsubln)){
-                        int min = INT_MAX;
-                        int minidx = INT_MAX;
-                        for (int i = start; i < end; ++i) {
-                                if (idx[i] >= subsubln[i])
+                while (inbound(lo, hi, idxs, nelem)) {
+                        int small = INT_MAX;
+                        int ismall = INT_MAX;
+
+                        for (int isublist = lo; isublist < hi; ++isublist) {
+                                if (idxs[isublist] >= nelem[isublist])
                                         continue;
-                                if (min > subsubl[i][idx[i]]){
-                                        min = subsubl[i][idx[i]];
-                                        minidx = i;
+
+                                if (small > elems[isublist][idxs[isublist]]) {
+                                        small = elems[isublist][idxs[isublist]];
+                                        ismall = isublist;
                                 }
                         }
-                        idx[minidx]++;
-                        partial_res = realloc(partial_res, ++size_partial * (sizeof(*partial_res)));
-                        partial_res[size_partial-1] = min;
+
+                        partials = realloc(partials, (npartials + 1) *
+                                        (sizeof(*partials)));
+                        partials[npartials] = small;
+                        idxs[ismall]++;
+                        npartials++;
                 }
-                res[my_id] = partial_res;
-                nres[my_id] = size_partial;
+
+                merged[id] = partials;
+                nmerged[id] = npartials;
         }
-        return res;
 }
 
-void print_result(int **result, int *nresult, int p)
+void print_results(int **results, int *result_lens, int nproc)
 {
-        int i, j;
-        char *c = "";
+        static char *sep = "";
 
-        for (i = 0; i < p; i++){
-                for (j = 0; j < nresult[i]; j++){
-                        printf("%s%d", c, result[i][j]);
-                        c = ", ";
+        for (int i = 0; i < nproc; i++) {
+                for (int j = 0; j < result_lens[i]; j++) {
+                        printf("%s%d", sep, results[i][j]);
+                        sep = ", ";
                 }
         }
-        printf(".");
+        printf(".\n");
 }
 
 int main(int argc, char *argv[])
@@ -118,7 +136,7 @@ int main(int argc, char *argv[])
         if (argc != 3) {
                 printf("Usage is: GXX_psrs <n> <p>\n\n");
                 printf("  <n>: \tSize of random array to sort.\n");
-                printf("  <p>: \tNumber of process accross which to run.\n");
+                printf("  <p>: \tNumber of processors accross which to run.\n");
                 exit(EXIT_FAILURE);
         }
 
@@ -141,46 +159,61 @@ int main(int argc, char *argv[])
         int my_rank;
         MPI_Comm_rank(workers, &my_rank);
 
-        /* subsort, send */
+        /* status */
+        printf("random:\n");
+        print_vector(arr, n);
+
+        /* subsort */
         sort_sublists(arr, p, n);
 
-        /* status */
-        //print_vector(arr, n);
 
-        int i;
-        for (i = 0; i < p; i++) {
-                int bufsize = block_size(i, p, n);
-                int *sendbuf = arr + block_lo(i, p, n);
-                MPI_Send(sendbuf, bufsize, MPI_INT, i, 0, workers);
+        for (int iproc = 0; iproc < p; iproc++) {
+                int bufsize = block_size(iproc, p, n);
+                int *sendbuf = arr + block_lo(iproc, p, n);
+                MPI_Send(sendbuf, bufsize, MPI_INT, iproc, 0, workers);
         }
 
         /* samples, pivots */
         int *pivots = gather_pivots(arr, p, n);
         MPI_Bcast(pivots, p - 1, MPI_INT, MPI_ROOT, workers);
 
-        /* RECEIVE SUBLISTS */
-        int *subsubln = malloc((p * p) * sizeof(*subsubln));
-        int **subsubl = malloc((p * p) * sizeof(*subsubl));
+        /* receive sorted sublist arrays */
+        autofree int **sublists = malloc((p * p) * sizeof(*sublists));
+        autofree int *sublist_lens = malloc((p * p) * sizeof(*sublist_lens));
 
-        for (i = 0; i < p; i++) {
+        for (int iproc = 0; iproc < p; iproc++) {
 
-                int j;
-                for (j = 0; j < p; j++) {
+                for (int jproc = 0; jproc < p; jproc++) {
 
-                        int idx = i * p + j;
-                        MPI_Recv(&(subsubln[idx]), 1, MPI_INT, i, i, workers, NULL);
+                        int idx = iproc * p + jproc;
 
-                        subsubl[idx] = malloc(subsubln[idx] * sizeof(*(subsubl[idx])));
-                        MPI_Recv(subsubl[idx], subsubln[idx], MPI_INT, i, i, workers, NULL);
+                        MPI_Recv(&(sublist_lens[idx]), 1, MPI_INT, iproc,
+                                        iproc, workers, NULL);
 
-                        //printf("%d: received %d elems\n", i, subsubln[idx]);
-                        //print_vector(subsubl[idx], subsubln[idx]);
+                        sublists[idx] = malloc(sublist_lens[idx] *
+                                        sizeof(*(sublists[idx])));
+
+                        MPI_Recv(sublists[idx], sublist_lens[idx], MPI_INT,
+                                        iproc, iproc, workers, NULL);
                 }
         }
 
-        int *nresult = malloc(p * sizeof(*nresult));
-        int **result = merge_result(subsubl, subsubln, p, nresult);
-        print_result(result, nresult, p);
+        /* merge sublist arrays into results with omp */
+        autofree int **results = malloc(p * sizeof(*results));
+        autofree int *result_lens = malloc(p * sizeof(*result_lens));
+        merge_results(results, result_lens, sublists, sublist_lens, p);
+
+        /* status */
+        printf("sorted:\n");
+        print_results(results, result_lens, p);
+
+        /* free derref sublists */
+        for (int i = 0; i < p * p; i ++)
+                free(sublists[i]);
+
+        /* free derref results */
+        for (int i = 0; i < p; i ++)
+                free(results[i]);
 
         MPI_Finalize();
         return EXIT_SUCCESS;

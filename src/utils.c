@@ -47,9 +47,12 @@ int char_to_int(const char *digits)
  */
 void print_vector(int *base, int size)
 {
-        int i;
-        for (i = 0; i < size; i++) {
-                printf("%d", base[i]);
-                printf(i == size - 1 ? ".\n" : " ");
+        char *sep = "";
+
+        for (int i = 0; i < size; i++) {
+                printf("%s%d", sep, base[i]);
+                sep = ", ";
         }
+
+        printf(".\n");
 }

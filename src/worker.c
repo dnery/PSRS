@@ -9,46 +9,42 @@
 /* Local includes */
 #include "utils.h"
 
-void exchange_values(int *arr, int *pivots, int p, int n)
+void exchange_values(int *arr, int *pivots, int nproc, int nelem)
 {
-        int start, my_start;    /**/
-        int end, my_end;        /**/
-        int iproc;              /**/
-        int isublist = 0;       /**/
+        int start, my_start;    /* start index, local processor end index */
+        int end, my_end;        /* end index, local processor end index */
+        int isublist;           /* local elem subarray iterator */
+        int iproc;              /* processor iterator */
 
         /* my process rank */
         int my_rank;
         MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
 
         /* Exchange: send between processes */
-        for (iproc = 0; iproc < p; iproc++) {
+        for (isublist = 0, iproc = 0; iproc < nproc; iproc++) {
 
                 start = isublist;
-                //printf("%d: has start %d\n", my_rank, start);
 
-                if (iproc == p - 1) {
-                        end = n;
-                        //printf("%d: lastone: has end %d\n", my_rank, end);
-                } else {
-                        while (arr[isublist] <= pivots[iproc] && isublist < n)
+                if (iproc < nproc - 1) {        /* before the last pivot */
+
+                        while (arr[isublist] <= pivots[iproc] &&
+                                        isublist < nelem)
                                 isublist++;
+
                         end = isublist;
-                        //printf("%d: has end %d\n", my_rank, end);
+                } else {                        /* on the last pivot */
+                        end = nelem;
                 }
 
                 if (iproc == my_rank) {
-
                         my_start = start;
                         my_end = end;
-
-                        //printf("%d: myself, start %d, end %d\n", my_rank, my_start, my_end);
-
                 } else {
-
+                        int *sendbuf = arr + start;
                         int nsendbuf = end - start;
 
                         MPI_Send(&nsendbuf, 1, MPI_INT, iproc, my_rank, MPI_COMM_WORLD);
-                        MPI_Send(arr + start, nsendbuf, MPI_INT, iproc, my_rank, MPI_COMM_WORLD);
+                        MPI_Send(sendbuf, nsendbuf, MPI_INT, iproc, my_rank, MPI_COMM_WORLD);
                 }
         }
 
@@ -57,30 +53,27 @@ void exchange_values(int *arr, int *pivots, int p, int n)
         MPI_Comm_get_parent(&parent);
 
         /* Exchange: send between processes */
-        for (iproc = 0; iproc < p; iproc++) {
-
-                int *sendbuf;
-                int nsendbuf;
+        for (iproc = 0; iproc < nproc; iproc++) {
 
                 if (iproc == my_rank) {
+                        int *sendbuf = arr + my_start;
+                        int nsendbuf = my_end - my_start;
 
-                        sendbuf = arr + my_start;
-                        nsendbuf = my_end - my_start;
-
+                        /* just send my data if I own it... */
+                        MPI_Send(&nsendbuf, 1, MPI_INT, 0, my_rank, parent);
+                        MPI_Send(sendbuf, nsendbuf, MPI_INT, 0, my_rank, parent);
                 } else {
-
                         int nrecbuf;
                         MPI_Recv(&nrecbuf, 1, MPI_INT, iproc, iproc, MPI_COMM_WORLD, NULL);
 
-                        int *recbuf = malloc(nrecbuf * sizeof(*recbuf));
+                        autofree int *recbuf = malloc(nrecbuf * sizeof(*recbuf));
                         MPI_Recv(recbuf, nrecbuf, MPI_INT, iproc, iproc, MPI_COMM_WORLD, NULL);
 
-                        sendbuf = recbuf;
-                        nsendbuf = nrecbuf;
+                        /* ...otherwise receive and just send */
+                        MPI_Send(&nrecbuf, 1, MPI_INT, 0, my_rank, parent);
+                        MPI_Send(recbuf, nrecbuf, MPI_INT, 0, my_rank, parent);
                 }
 
-                MPI_Send(&nsendbuf, 1, MPI_INT, 0, my_rank, parent);
-                MPI_Send(sendbuf, nsendbuf, MPI_INT, 0, my_rank, parent);
         }
 }
 
@@ -95,26 +88,22 @@ int main(int argc, char *argv[])
         MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
 
         /* ready args */
-        int n = char_to_int(argv[1]);
-        int p = char_to_int(argv[2]);
+        int nelem = char_to_int(argv[1]);
+        int nproc = char_to_int(argv[2]);
 
         /* ready data */
-        int my_n = block_size(my_rank, p, n);
-        int *arr = malloc(my_n * sizeof(*arr));
+        int my_nproc = block_size(my_rank, nproc, nelem);
+        autofree int *arr = malloc(my_nproc * sizeof(*arr));
 
         /* Receive array */
         MPI_Status status;
-        MPI_Recv(arr, my_n, MPI_INT, 0, 0, parent, &status);
+        MPI_Recv(arr, my_nproc, MPI_INT, 0, 0, parent, &status);
 
         /* Receive pivot */
-        int *pivots = malloc((p - 1) * sizeof(*pivots));
-        MPI_Bcast(pivots, p - 1, MPI_INT, 0, parent);
+        autofree int *pivots = malloc((nproc - 1) * sizeof(*pivots));
+        MPI_Bcast(pivots, nproc - 1, MPI_INT, 0, parent);
 
-        /* status */
-        //printf("%d: pivs:\n", my_rank);
-        //print_vector(pivots, p - 1);
-
-        exchange_values(arr, pivots, p, my_n);
+        exchange_values(arr, pivots, nproc, my_nproc);
 
         MPI_Finalize();
         return EXIT_SUCCESS;

@@ -1,2 +1,8 @@
 assignment/
-GXX_psrs
+obj/
+
+parent
+worker
+
+*.zip
+*.pdf
