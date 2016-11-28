@@ -44,7 +44,7 @@ int *gather_pivots(int *elems, int nproc, int nelem)
         return pivots;
 }
 
-void sort_sublists(int *arr, int nproc, int nelem)
+void sort_sublists(int *elems, int nproc, int nelem)
 {
         int id; /* current thread id */
         int lo; /* current thread start index */
@@ -58,7 +58,7 @@ void sort_sublists(int *arr, int nproc, int nelem)
                 hi = block_hi(id, nproc, nelem);
 
                 /* sort sublist */
-                _quicksort(arr, lo, hi);
+                _quicksort(elems, lo, hi);
         }
 }
 
@@ -134,7 +134,7 @@ void print_results(int **results, int *result_lens, int nproc)
 int main(int argc, char *argv[])
 {
         if (argc != 3) {
-                printf("Usage is: GXX_psrs <n> <p>\n\n");
+                printf("Usage is: make run <n> <p>\n\n");
                 printf("  <n>: \tSize of random array to sort.\n");
                 printf("  <p>: \tNumber of processors accross which to run.\n");
                 exit(EXIT_FAILURE);
@@ -144,37 +144,32 @@ int main(int argc, char *argv[])
         int p = char_to_int(argv[2]);
 
         if (p * p > n) {
-                printf("(p * p) has to be smaller or equal than (n)!\n");
+                printf("(p * p) has to be smaller than or equal to (n)!\n");
                 exit(EXIT_FAILURE);
         }
 
         MPI_Init(&argc, &argv);
-
-        int *arr = random_ints(n);
+        autofree int *elems = random_ints(n);
 
         MPI_Comm workers;
         MPI_Comm_spawn("./worker", argv + 1, p, MPI_INFO_NULL, 0,
                         MPI_COMM_SELF, &workers, MPI_ERRCODES_IGNORE);
 
-        int my_rank;
-        MPI_Comm_rank(workers, &my_rank);
-
         /* status */
         printf("random:\n");
-        print_vector(arr, n);
+        print_vector(elems, n);
 
         /* subsort */
-        sort_sublists(arr, p, n);
-
+        sort_sublists(elems, p, n);
 
         for (int iproc = 0; iproc < p; iproc++) {
                 int bufsize = block_size(iproc, p, n);
-                int *sendbuf = arr + block_lo(iproc, p, n);
+                int *sendbuf = elems + block_lo(iproc, p, n);
                 MPI_Send(sendbuf, bufsize, MPI_INT, iproc, 0, workers);
         }
 
         /* samples, pivots */
-        int *pivots = gather_pivots(arr, p, n);
+        autofree int *pivots = gather_pivots(elems, p, n);
         MPI_Bcast(pivots, p - 1, MPI_INT, MPI_ROOT, workers);
 
         /* receive sorted sublist arrays */

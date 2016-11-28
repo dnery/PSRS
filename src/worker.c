@@ -9,7 +9,7 @@
 /* Local includes */
 #include "utils.h"
 
-void exchange_values(int *arr, int *pivots, int nproc, int nelem)
+void exchange_values(int *elems, int *pivots, int nproc, int nsublist)
 {
         int start, my_start;    /* start index, local processor end index */
         int end, my_end;        /* end index, local processor end index */
@@ -27,20 +27,20 @@ void exchange_values(int *arr, int *pivots, int nproc, int nelem)
 
                 if (iproc < nproc - 1) {        /* before the last pivot */
 
-                        while (arr[isublist] <= pivots[iproc] &&
-                                        isublist < nelem)
+                        while (elems[isublist] <= pivots[iproc] &&
+                                        isublist < nsublist)
                                 isublist++;
 
                         end = isublist;
                 } else {                        /* on the last pivot */
-                        end = nelem;
+                        end = nsublist;
                 }
 
                 if (iproc == my_rank) {
                         my_start = start;
                         my_end = end;
                 } else {
-                        int *sendbuf = arr + start;
+                        int *sendbuf = elems + start;
                         int nsendbuf = end - start;
 
                         MPI_Send(&nsendbuf, 1, MPI_INT, iproc, my_rank, MPI_COMM_WORLD);
@@ -56,7 +56,7 @@ void exchange_values(int *arr, int *pivots, int nproc, int nelem)
         for (iproc = 0; iproc < nproc; iproc++) {
 
                 if (iproc == my_rank) {
-                        int *sendbuf = arr + my_start;
+                        int *sendbuf = elems + my_start;
                         int nsendbuf = my_end - my_start;
 
                         /* just send my data if I own it... */
@@ -93,17 +93,17 @@ int main(int argc, char *argv[])
 
         /* ready data */
         int my_nproc = block_size(my_rank, nproc, nelem);
-        autofree int *arr = malloc(my_nproc * sizeof(*arr));
+        autofree int *elems = malloc(my_nproc * sizeof(*elems));
 
         /* Receive array */
         MPI_Status status;
-        MPI_Recv(arr, my_nproc, MPI_INT, 0, 0, parent, &status);
+        MPI_Recv(elems, my_nproc, MPI_INT, 0, 0, parent, &status);
 
         /* Receive pivot */
         autofree int *pivots = malloc((nproc - 1) * sizeof(*pivots));
         MPI_Bcast(pivots, nproc - 1, MPI_INT, 0, parent);
 
-        exchange_values(arr, pivots, nproc, my_nproc);
+        exchange_values(elems, pivots, nproc, my_nproc);
 
         MPI_Finalize();
         return EXIT_SUCCESS;
